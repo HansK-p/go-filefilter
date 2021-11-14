@@ -48,8 +48,9 @@ func ReadDir(logger *log.Entry, config *Configuration, dirPath string) ([]fs.Fil
 		}
 		if !passes {
 			logger.Debugf("The file did not pass the '%s' condition", condition)
+		} else {
+			files = append(files, fileInfo)
 		}
-		files = append(files, fileInfo)
 	}
 
 	return files, nil
