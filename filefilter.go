@@ -1,7 +1,9 @@
 package filefilter
 
 import (
+	"fmt"
 	"io/fs"
+	"io/ioutil"
 	"time"
 
 	"github.com/HansK-p/go-customtypes"
@@ -29,4 +31,26 @@ func PassesFilter(logger *log.Entry, fileInfo fs.FileInfo, config *Configuration
 		return false, "min_age", nil
 	}
 	return true, "", nil
+}
+
+func ReadDir(logger *log.Entry, dirPath string, config *Configuration) ([]fs.FileInfo, error) {
+	allFiles, err := ioutil.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("when listing files in the folder '%s': %w", dirPath, err)
+	}
+
+	files := []fs.FileInfo{}
+	for _, fileInfo := range allFiles {
+		logger := logger.WithFields(log.Fields{"Filename": fileInfo.Name()})
+		passes, condition, err := PassesFilter(logger, fileInfo, config)
+		if err != nil {
+			return nil, fmt.Errorf("when using the filter on the file '%s': %w", fileInfo.Name(), err)
+		}
+		if !passes {
+			logger.Debugf("The file did not pass the '%s' condition", condition)
+		}
+		files = append(files, fileInfo)
+	}
+
+	return files, nil
 }
