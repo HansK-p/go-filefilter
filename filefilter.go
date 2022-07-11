@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
@@ -55,13 +56,12 @@ func PassesFilter(logger *log.Entry, config *Configuration, fileInfo fs.FileInfo
 	return true, "", nil
 }
 
-func ReadDir(logger *log.Entry, config *Configuration, dirPath string) ([]fs.FileInfo, error) {
+func ReadDir(logger *log.Entry, config *Configuration, dirPath string) (files []fs.FileInfo, err error) {
 	allFiles, err := ioutil.ReadDir(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("when listing files in the folder '%s': %w", dirPath, err)
 	}
 
-	files := []fs.FileInfo{}
 	for _, fileInfo := range allFiles {
 		logger := logger.WithFields(log.Fields{"Filename": fileInfo.Name()})
 		passes, condition, err := PassesFilter(logger, config, fileInfo)
@@ -78,11 +78,11 @@ func ReadDir(logger *log.Entry, config *Configuration, dirPath string) ([]fs.Fil
 	return files, nil
 }
 
-func WalkDir(logger *log.Entry, config *Configuration, dirPath string) (map[string]fs.FileInfo, error) {
-	files := make(map[string]fs.FileInfo)
+func WalkDir(logger *log.Entry, config *Configuration, dirPath string) (files map[string]fs.FileInfo, err error) {
+	files = make(map[string]fs.FileInfo)
 	if err := filepath.Walk(dirPath,
-		func(path string, fileInfo os.FileInfo, err error) error {
-			logger := logger.WithFields(log.Fields{"Path": path})
+		func(filePath string, fileInfo os.FileInfo, err error) error {
+			logger := logger.WithFields(log.Fields{"FilePath": filePath})
 			if err != nil {
 				return err
 			}
@@ -96,11 +96,53 @@ func WalkDir(logger *log.Entry, config *Configuration, dirPath string) (map[stri
 			if !passes {
 				logger.Debugf("The file did not pass the '%s' condition", condition)
 			} else {
-				files[path] = fileInfo
+				files[filePath] = fileInfo
 			}
 			return nil
 		}); err != nil {
 		return nil, fmt.Errorf("when walking the file system: %w", err)
 	}
 	return files, nil
+}
+
+type FilterMatch struct {
+	FileInfo fs.FileInfo
+	FilePath string
+	Config   *Configuration
+}
+
+func ReadDirMatches(logger *log.Entry, configs []Configuration, dirPath string) (filterMatches []FilterMatch, err error) {
+	for idx := range configs {
+		config := &configs[idx]
+		files, err := ReadDir(logger, config, dirPath)
+		if err != nil {
+			return nil, fmt.Errorf("when applying filter configuration '%#v': %w", config, err)
+		}
+		for _, file := range files {
+			filterMatches = append(filterMatches, FilterMatch{
+				FileInfo: file,
+				FilePath: path.Join(dirPath, file.Name()),
+				Config:   config,
+			})
+		}
+	}
+	return filterMatches, err
+}
+
+func WalkDirMatches(logger *log.Entry, configs []Configuration, dirPath string) (filterMatches []FilterMatch, err error) {
+	for idx := range configs {
+		config := &configs[idx]
+		files, err := WalkDir(logger, config, dirPath)
+		if err != nil {
+			return nil, fmt.Errorf("when applying filter configuration '%#v': %w", config, err)
+		}
+		for filePath, file := range files {
+			filterMatches = append(filterMatches, FilterMatch{
+				FileInfo: file,
+				FilePath: filePath,
+				Config:   config,
+			})
+		}
+	}
+	return filterMatches, err
 }
